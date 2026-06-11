@@ -1,6 +1,6 @@
 # AI Gateway
 
-![CI](https://github.com/<owner>/<repo>/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/vincentllm/demogateway/actions/workflows/ci.yml/badge.svg)
 
 > [!WARNING]  
 > **这是 Python 快速原型 / Demo 项目，不是生产级高性能网关。** 当前实现为快速验证架构（限流、后端健康、Provider 抽象、降级冗灾）并避免编译等待，因此选择 Python + FastAPI。若用于生产高吞吐场景，建议重写为 **Rust + Pingora** 或 Go。详见 [RFD-001](docs/rfd/rfd-001-technology-stack.md)。
