@@ -1,0 +1,51 @@
+server:
+  host: 0.0.0.0
+  port: 8000
+
+rate_limiter:
+  policies:
+    - name: request-limit
+      enabled: true
+      algorithm: fixed_window
+      granularity: request
+      window_seconds: 60
+      limit: 5
+    - name: token-limit
+      enabled: true
+      algorithm: fixed_window
+      granularity: token
+      window_seconds: 60
+      limit: 10000
+  default_key_source: api_key
+
+tokenizer:
+  type: dummy
+  tokens_per_message: 10
+  overhead: 5
+
+backends:
+  - id: mock-local
+    provider: openai
+    base_url: "http://127.0.0.1:9999"
+    api_key: "mock-key"
+    weight: 1
+    models:
+      - gpt-4o-mini
+
+resilience:
+  max_retries: 2
+  retry_status_codes: [429, 502, 503, 504]
+  timeout: 10
+  fallback:
+    enabled: true
+    message: "The LLM service is temporarily unavailable. Please try again later."
+
+health_check:
+  interval_seconds: 10
+  timeout_seconds: 2
+  unhealthy_threshold: 2
+
+load_metrics:
+  latency_threshold_ms: 2000
+  error_rate_threshold: 0.2
+  window_size: 20

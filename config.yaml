@@ -1,0 +1,61 @@
+server:
+  host: 0.0.0.0
+  port: 8000
+
+rate_limiter:
+  policies:
+    - name: request-limit
+      enabled: true
+      algorithm: fixed_window
+      granularity: request
+      window_seconds: 60
+      limit: 100
+    - name: token-limit
+      enabled: true
+      algorithm: fixed_window
+      granularity: token
+      window_seconds: 60
+      limit: 10000
+  default_key_source: api_key
+
+tokenizer:
+  type: dummy
+  tokens_per_message: 10
+  overhead: 5
+
+backends:
+  - id: openai-primary
+    provider: openai
+    base_url: "https://api.openai.com/v1"
+    api_key: "${OPENAI_API_KEY}"
+    weight: 1
+    models:
+      - gpt-4
+      - gpt-3.5-turbo
+  - id: openai-backup
+    provider: openai
+    base_url: "https://api.openai.com/v1"
+    api_key: "${OPENAI_API_KEY}"
+    weight: 1
+    models:
+      - gpt-3.5-turbo
+
+resilience:
+  max_retries: 3
+  retry_status_codes: [429, 502, 503, 504]
+  timeout: 30
+  fallback:
+    enabled: true
+    message: "Service temporarily unavailable, please retry later."
+    model_downgrade:
+      gpt-4: gpt-3.5-turbo
+
+health_check:
+  interval_seconds: 10
+  timeout_seconds: 3
+  unhealthy_threshold: 2
+
+load_metrics:
+  latency_threshold_ms: 2000
+  error_rate_threshold: 0.2
+  window_size: 20
