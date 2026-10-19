@@ -378,3 +378,76 @@ def test_review_claude_context_limit_and_unknown_stop():
     assert result[0]["choices"][0]["finish_reason"] == "length"
     with pytest.raises(AdapterError, match="unsupported_stop_reason"):
         a.decode_response(200, {}, {"id": "id", "model": "upstream", "content": [], "stop_reason": "pause_turn", "usage": {"input_tokens": 1, "output_tokens": 0}})
+
+
+@pytest.mark.parametrize("provider", PROVIDERS)
+def test_transport_empty_state_initializes_once_and_finishes(provider):
+    a, state = adapter(provider), {}
+    state_id = id(state)
+    if provider == "claude":
+        first = start(a, state)
+        created, blocks = state["created"], state["blocks"]
+        block_start(a, state)
+        event(a, state, "content_block_delta", index=0, delta={"type": "text_delta", "text": "hi"})
+        block_stop(a, state)
+        final = finish(a, state)
+        assert state["created"] == created and state["blocks"] is blocks
+        assert first[0]["choices"][0]["delta"]["role"] == "assistant"
+    else:
+        first = a.decode_event("message", {"choices": [{"index": 0, "delta": {"content": "hi"}, "finish_reason": None}]}, state)
+        a.decode_event("message", {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}, state)
+        final = a.decode_event("message", "[DONE]", state)
+        assert first[0]["choices"][0]["delta"] == {"content": "hi"}
+    assert id(state) == state_id
+    assert final.count("[DONE]") == 1
+    assert state["terminal"] is True and state["outcome"] == "success"
+    assert a.decode_event(None, "[DONE]", state) == []
+
+
+@pytest.mark.parametrize("provider", PROVIDERS)
+def test_transport_empty_state_failure_remains_terminal(provider):
+    a, state = adapter(provider), {}
+    with pytest.raises(AdapterError):
+        a.decode_event(None, "invalid-json", state)
+    assert state["terminal"] is True and state["outcome"] == "upstream_error"
+    assert a.decode_event(None, "[DONE]", state) == []
+    fresh = {}
+    assert "error" in a.decode_event("error", {"error": {"message": "private"}}, fresh)[0]
+    assert fresh["outcome"] == "upstream_error"
+    assert a.decode_event(None, "[DONE]", fresh) == []
+
+
+def test_transport_preserves_preinitialized_options_and_isolates_empty_states():
+    a = adapter()
+    explicit = a.new_state("public", include_usage=True)
+    created, blocks = explicit["created"], explicit["blocks"]
+    start(a, explicit)
+    result = finish(a, explicit)
+    assert explicit["created"] == created and explicit["blocks"] is blocks
+    assert result[0]["model"] == "public"
+    assert result[1]["choices"] == [] and result[1]["usage"]["total_tokens"] == 15
+    one, two = {}, {}
+    start(a, one)
+    start(a, two)
+    block_start(a, one)
+    assert two["blocks"] == {} and two["terminal"] is False
+    finish(a, two)
+    assert one["terminal"] is False
+
+
+@pytest.mark.parametrize("state", [None, [], "private", 1, {"usage": None}, {"terminal": False}, {"terminal": "private"}])
+def test_transport_invalid_initial_state_is_safe(state):
+    a = adapter()
+    with pytest.raises(AdapterError, match="^invalid_stream_state$") as caught:
+        start(a, state)
+    assert caught.value.status == 502
+    assert "private" not in json.dumps(caught.value.payload())
+    if isinstance(state, dict):
+        assert state["terminal"] is True and state["outcome"] == "upstream_error"
+        assert a.decode_event(None, "[DONE]", state) == []
+
+
+def test_transport_existing_terminal_sentinel_remains_inert():
+    a, state = adapter(), {"terminal": True}
+    assert a.decode_event(None, "not-json", state) == []
+    assert state == {"terminal": True}
