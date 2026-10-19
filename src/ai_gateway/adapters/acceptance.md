@@ -16,3 +16,13 @@ Only adapters/ and tests/test_adapters.py may change. Host fallback checkout, no
 No path/config inputs, revision arguments, CLI, remote model loading, quotas or Redis APIs exist in this change; those matrices are excluded. Backend is server-owned configuration, not a client request field. True HTTP/SSE framing and paid-provider tests are integration responsibilities (not evidenced by these unit tests). Review from these requirements first, then separately inspect tests for coverage. Existing tests are not the correctness oracle.
 
 Commands (from this checkout): `PYTHONPATH=src python3 -m pytest tests/test_adapters.py -q`; `PYTHONPATH=src python3 -m pytest -q`; `git diff --check` plus explicit untracked-file inspection. No lab markdown pipeline applies to this Python target. Container workflow state is inaccessible; do not invent node results.
+
+## Callback compatibility fix criteria (frozen before the fix)
+
+- F1: GW-004 creates state={}; the first adapter callback must initialize that same dict and finish successfully for all three providers. Existing complete state must not be reset between events.
+- F2: Explicit new_state(public_alias, include_usage=True), existing block identity, created time, usage and terminal behavior remain intact; simultaneous request dictionaries share no mutable state.
+- F3: Non-dict and incomplete nonempty states raise a safe AdapterError rather than KeyError/TypeError. An existing terminal=True sentinel remains inert. A failed dict state cannot later produce DONE.
+- F4: Actual adapter callbacks composed with GW-004's StreamingTransport must pass independent known-wire text/tool, usage, success/error/truncation fixtures. Run the existing 21 integration cases in an isolated scratch export, leaving the coordinator's integration checkout untouched.
+- F5: Original regression suite remains unchanged and passes; no public signatures, transport source or dependencies change. Real socket tests are reported separately if blocked by the execution environment.
+
+Regression oracle: the same six empty-state tests fail before the fix with KeyError('terminal'), not provider/network errors. Commands: pytest tests/test_adapters.py; pytest of the isolated combined module snapshot. Review the small final diff from these criteria, then separately audit tests.

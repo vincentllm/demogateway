@@ -8,6 +8,12 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 
+_STREAM_STATE_FIELDS = frozenset({
+    "model_alias", "include_usage", "started", "terminal", "usage", "blocks",
+    "tool_count", "finish_reason", "created",
+})
+
+
 class AdapterError(ValueError):
     """Safe local protocol failure; never includes request or upstream body."""
 
@@ -326,8 +332,15 @@ class ProtocolAdapter:
         data is a parsed dict or an SSE data string (framing belongs to transport).
         state['usage'] is cumulative normalized usage or None, for terminal hooks.
         """
-        if state["terminal"]:
+        if not isinstance(state, dict):
+            raise AdapterError("invalid_stream_state", status=502)
+        if not state:
+            state.update(self.new_state())
+        if state.get("terminal") is True:
             return []
+        if not _STREAM_STATE_FIELDS <= state.keys() or type(state["terminal"]) is not bool:
+            state.update(terminal=True, outcome="upstream_error")
+            raise AdapterError("invalid_stream_state", status=502)
         try:
             return self._decode_event(event, data, state)
         except (KeyError, TypeError, ValueError) as exc:
