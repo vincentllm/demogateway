@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 
 EnvPattern = re.compile(r"\$\{([^}:]+)(?::([^}]*))?\}")
@@ -103,7 +103,69 @@ class LoadMetricsConfig(BaseModel):
     window_size: int = Field(default=20, ge=1)
 
 
+class PlatformRoute(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    provider: Literal["openai", "deepseek", "claude"]
+    base_url: str
+    upstream_model: str = Field(min_length=1, max_length=256)
+    key_ref: str
+    input_token_bound: int = Field(strict=True, ge=1, le=2**53 - 1)
+
+
+class PlatformQuota(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    rpm: int = Field(strict=True, ge=0, le=2**53 - 1)
+    tpm: int = Field(strict=True, ge=0, le=2**53 - 1)
+    total_tokens: int = Field(strict=True, ge=0, le=2**53 - 1)
+    window_seconds: int = Field(default=60, strict=True, ge=1, le=86400)
+
+
+class PlatformConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    auth: dict[str, Any] = Field(repr=False, exclude=True)
+    routes: dict[str, PlatformRoute] = Field(min_length=1)
+    quotas: dict[str, PlatformQuota]
+    redis_url: SecretStr | None = Field(default=None, repr=False, exclude=True)
+    quota_namespace: str = "gateway"
+    max_output_tokens: int = Field(default=1024, strict=True, ge=1, le=2**31 - 1)
+    default_max_tokens: int = Field(default=128, strict=True, ge=1)
+    timeout: float = Field(default=30, gt=0, allow_inf_nan=False)
+    max_request_bytes: int = Field(default=1048576, strict=True, ge=1)
+    max_response_bytes: int = Field(default=4194304, strict=True, ge=1)
+
+    @model_validator(mode="after")
+    def validate_contract(self):
+        import httpx
+        from ai_gateway.auth import AuthConfig
+        from ai_gateway.adapters import ProtocolAdapter
+        auth = AuthConfig.from_mapping(self.auth)
+        if self.default_max_tokens > self.max_output_tokens:
+            raise ValueError("Default output limit exceeds maximum")
+        refs = {pool.key_ref for pool in auth.upstream_pools}
+        for alias, route in self.routes.items():
+            if not alias or len(alias) > 256 or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in alias):
+                raise ValueError("Invalid public model alias")
+            if route.key_ref not in refs or route.input_token_bound + self.max_output_tokens > 2**53 - 1:
+                raise ValueError("Invalid route credentials or reservation bound")
+            encoded = ProtocolAdapter(route.provider, {alias: route.upstream_model}).encode_request(
+                {"model": alias, "messages": [{"role": "user", "content": ""}], "max_tokens": 1},
+                {"provider": route.provider, "base_url": route.base_url}, "validation-key")
+            try:
+                url = httpx.URL(encoded["url"])
+                if not url.host or (url.port is not None and not 1 <= url.port <= 65535):
+                    raise ValueError("Invalid provider URL")
+            except (httpx.InvalidURL, ValueError):
+                raise ValueError("Invalid provider URL") from None
+        if any(client.enabled and client.client_id not in self.quotas for client in auth.clients):
+            raise ValueError("Enabled clients require quotas")
+        if not self.quota_namespace or any(c in self.quota_namespace for c in "{}\r\n"):
+            raise ValueError("Invalid quota namespace")
+        return self
+
+
 class GatewayConfig(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+    platform: PlatformConfig | None = None
     server: ServerConfig = Field(default_factory=ServerConfig)
     rate_limiter: RateLimiterConfig = Field(default_factory=RateLimiterConfig)
     tokenizer: TokenizerConfig = Field(default_factory=TokenizerConfig)

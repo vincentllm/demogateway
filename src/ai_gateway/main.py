@@ -102,6 +102,10 @@ def create_app(
     if config is None:
         config = load_config()
 
+    if config.platform is not None:
+        from ai_gateway.runtime import create_platform_app
+        return create_platform_app(config, http_client)
+
     tokenizer = DummyTokenizer(
         tokens_per_message=config.tokenizer.tokens_per_message,
         overhead=config.tokenizer.overhead,
