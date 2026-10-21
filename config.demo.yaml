@@ -1,0 +1,98 @@
+# Local fixture credentials only. Never expose this configuration publicly.
+server:
+  host: 0.0.0.0
+  port: 8000
+platform:
+  auth:
+    clients:
+    - client_id: demo
+      keys:
+      - key_id: demo-v1
+        sha256: fdc8af2a84ca91fe8968b3c80cff06e18d24c34e4db8014802e9842d73bc6d71
+      allowed_models:
+      - openai-demo
+      - deepseek-demo
+      - claude-demo
+    - client_id: limited
+      keys:
+      - key_id: limited-v1
+        sha256: 430cfa7b8c2e4bf1b1ea493c038031e8acea2a3e94417851eba827f120c88357
+      allowed_models:
+      - openai-demo
+      - deepseek-demo
+      - claude-demo
+    - client_id: settle
+      keys:
+      - key_id: settle-v1
+        sha256: 5b0a914966c3fe11e01ead584c3c9a115c13f22e98ba947bcd6fdb0770e4e7ec
+      allowed_models:
+      - openai-demo
+    - client_id: error
+      keys:
+      - key_id: error-v1
+        sha256: 3257979fbc3e0d2526438cde1239a9ecbb771a2f300bceb512af31b843138a03
+      allowed_models:
+      - openai-demo
+    - client_id: cancel
+      keys:
+      - key_id: cancel-v1
+        sha256: fb8019143cd9885c7c793f2d6d904b0646bb59fa676066851e70e42f34ba5d29
+      allowed_models:
+      - openai-demo
+    upstream_pools:
+    - key_ref: openai
+      keys:
+      - key_id: openai-v1
+        secret: upstream-openai-demo
+    - key_ref: deepseek
+      keys:
+      - key_id: deepseek-v1
+        secret: upstream-deepseek-demo
+    - key_ref: claude
+      keys:
+      - key_id: claude-v1
+        secret: upstream-claude-demo
+  routes:
+    openai-demo:
+      provider: openai
+      base_url: http://127.0.0.1:9999/openai/v1
+      upstream_model: openai-upstream
+      key_ref: openai
+      input_token_bound: 4096
+    deepseek-demo:
+      provider: deepseek
+      base_url: http://127.0.0.1:9999/deepseek/v1
+      upstream_model: deepseek-upstream
+      key_ref: deepseek
+      input_token_bound: 4096
+    claude-demo:
+      provider: claude
+      base_url: http://127.0.0.1:9999/claude/v1
+      upstream_model: claude-upstream
+      key_ref: claude
+      input_token_bound: 4096
+  quotas:
+    demo:
+      rpm: 5000
+      tpm: 10000000
+      total_tokens: 100000000
+    limited:
+      rpm: 1
+      tpm: 100000
+      total_tokens: 100000
+    settle:
+      rpm: 100
+      tpm: 100000
+      total_tokens: 4141
+    error:
+      rpm: 100
+      tpm: 100000
+      total_tokens: 4128
+    cancel:
+      rpm: 100
+      tpm: 100000
+      total_tokens: 4128
+  redis_url: ${GATEWAY_REDIS_URL:unix:///tmp/gw-integration-redis.sock}
+  quota_namespace: ${GATEWAY_QUOTA_NAMESPACE:gateway-demo-v1}
+  max_output_tokens: 1024
+  default_max_tokens: 128
